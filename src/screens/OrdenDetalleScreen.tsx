@@ -8,24 +8,41 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+// @ts-ignore
+import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from '../api/config';
 import { colors } from '../theme/colors';
 
 interface Props {
   ordenId: number;
+  ordenData?: any;
   token: string;
   user: any;
   onBack: () => void;
   onOpenQr: () => void;
 }
 
-export default function OrdenDetalleScreen({ ordenId, token, user, onBack, onOpenQr }: Props) {
-  const [orden, setOrden] = useState<any | null>(null);
+export default function OrdenDetalleScreen({
+  ordenId,
+  ordenData,
+  token,
+  user,
+  onBack,
+  onOpenQr,
+}: Props) {
+  const [orden, setOrden] = useState<any | null>(ordenData || null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [minutosRestantes, setMinutosRestantes] = useState<string>('--:--');
+  
+  // Seguimiento independiente por línea de cada tipo de foto
   const [evidenciasLocales, setEvidenciasLocales] = useState<Record<number, string[]>>({});
+
+  const [fotoModalVisible, setFotoModalVisible] = useState(false);
+  const [fotoUrlSeleccionada, setFotoUrlSeleccionada] = useState<string | null>(null);
 
   const fetchOrden = async () => {
     setLoading(true);
@@ -35,15 +52,22 @@ export default function OrdenDetalleScreen({ ordenId, token, user, onBack, onOpe
       });
       const data = await res.json();
       setOrden(data);
-    } catch (e) {}
-    setLoading(false);
+    } catch (e: any) {
+      Alert.alert('Error', 'No se pudo cargar la orden: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    fetchOrden();
-  }, [ordenId]);
+    if (ordenData && ordenData.id === ordenId) {
+      setOrden(ordenData);
+    } else {
+      fetchOrden();
+    }
+  }, [ordenId, ordenData]);
 
-  // Contador de 15 minutos exacto al fragment_orden_detalle.xml de Android
+  // Contador de 15 minutos en tiempo real
   useEffect(() => {
     if (orden?.vence_apertura && (orden.estado === 'abierta' || orden.estado === 'rehabilitada')) {
       const interval = setInterval(() => {
@@ -62,45 +86,73 @@ export default function OrdenDetalleScreen({ ordenId, token, user, onBack, onOpe
     }
   }, [orden]);
 
-  // Subida simulada/real de evidencia fotográfica
-  const subirFoto = async (detalleId: number, tipoFoto: string) => {
-    setActionLoading(true);
+  // Subida de evidencias fotográficas
+  const tomarYSubirFoto = async (detalleId: number, tipoFoto: string) => {
     try {
-      // Form Data multipart como exige tu método en Laravel
-      const formData = new FormData();
-      formData.append('tipo', tipoFoto);
-      // Simula archivo para pruebas móviles si no hay expo-image-picker instalado
-      formData.append('foto', {
-        uri: 'https://placehold.co/600x400/png',
-        name: `evidencia_${tipoFoto}_${detalleId}.png`,
-        type: 'image/png',
-      } as any);
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permiso Denegado',
+          'Se requiere acceso a la cámara para capturar la evidencia del despacho.'
+        );
+        return;
+      }
 
-      const res = await fetch(`${API_URL}/detalle-ordenes/${detalleId}/evidencia`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.7,
       });
 
-      if (!res.ok) throw new Error('Error al subir fotografía.');
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
 
-      Alert.alert('Evidencia Registrada', `Foto de ${tipoFoto.toUpperCase()} guardada exitosamente.`);
+      const fotoLocal = result.assets[0];
+      setActionLoading(true);
+
+      const uploadResponse = await FileSystem.uploadAsync(
+        `${API_URL}/detalle-ordenes/${detalleId}/evidencia`,
+        fotoLocal.uri,
+        {
+          httpMethod: 'POST',
+          uploadType: ((FileSystem as any).FileSystemUploadType?.MULTIPART ?? 1) as any,
+          fieldName: 'foto',
+          parameters: {
+            tipo: tipoFoto,
+          },
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const json = JSON.parse(uploadResponse.body);
+
+      if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
+        throw new Error(
+          json.mensaje || json.message || `Error del servidor (${uploadResponse.status})`
+        );
+      }
+
+      Alert.alert('Éxito', `Evidencia de ${tipoFoto.toUpperCase()} registrada en el servidor.`);
+
+      // Registrar esta foto como tomada para esta línea
       setEvidenciasLocales((prev) => ({
         ...prev,
         [detalleId]: [...(prev[detalleId] || []), tipoFoto],
       }));
+
       fetchOrden();
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
+    } catch (err: any) {
+      Alert.alert('Error al subir evidencia', err.message);
     } finally {
       setActionLoading(false);
     }
   };
 
-  const rehabilitar = async () => {
+  const rehabilitarOrden = async () => {
     setActionLoading(true);
     try {
       const res = await fetch(`${API_URL}/ordenes/${orden.id}/rehabilitar`, {
@@ -133,18 +185,39 @@ export default function OrdenDetalleScreen({ ordenId, token, user, onBack, onOpe
 
   return (
     <View style={styles.flex}>
-      {/* Top Header */}
       <View style={styles.topHeader}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={{ fontSize: 20 }}>←</Text>
+          <Text style={{ fontSize: 22, color: colors.textoPrincipal }}>←</Text>
         </TouchableOpacity>
         <Text style={styles.topHeaderTitle}>Detalle de orden</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.orderNumber}>{orden.numero_orden}</Text>
-        <View style={[styles.badge, { backgroundColor: isPendiente ? colors.pendienteFondo : isOpen ? colors.abiertaFondo : colors.completadaFondo }]}>
-          <Text style={[styles.badgeText, { color: isPendiente ? colors.pendiente : isOpen ? colors.abierta : colors.completada }]}>
+        <View
+          style={[
+            styles.badge,
+            {
+              backgroundColor: isPendiente
+                ? colors.pendienteFondo
+                : isOpen
+                ? colors.abiertaFondo
+                : colors.completadaFondo,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.badgeText,
+              {
+                color: isPendiente
+                  ? colors.pendiente
+                  : isOpen
+                  ? colors.abierta
+                  : colors.completada,
+              },
+            ]}
+          >
             {(orden.estado || '').toUpperCase()}
           </Text>
         </View>
@@ -152,12 +225,14 @@ export default function OrdenDetalleScreen({ ordenId, token, user, onBack, onOpe
         {/* 1. VISTA DE ORDEN PROTEGIDA (PENDIENTE) */}
         {isPendiente && (
           <View style={styles.protectedCard}>
-            <Text style={{ fontSize: 44, marginBottom: 8 }}>🔒</Text>
+            <Text style={{ fontSize: 48, marginBottom: 10 }}>🔒</Text>
             <Text style={styles.protectedTitle}>Orden protegida</Text>
             <Text style={styles.protectedSubtitle}>
               El monto y la gasolinera se revelan tras escanear el código QR en la estación.
             </Text>
-            <Text style={styles.protectedPlazo}>Plazo de retiro: {orden.vence_asignacion || 'En espera'}</Text>
+            <Text style={styles.protectedPlazo}>
+              Plazo de retiro: {orden.vence_asignacion || 'En espera'}
+            </Text>
             {user?.rol === 'conductor' && (
               <TouchableOpacity style={styles.btnPrimaryPill} onPress={onOpenQr}>
                 <Text style={styles.btnPrimaryPillText}>📷 Escanear QR de gasolinera</Text>
@@ -169,35 +244,35 @@ export default function OrdenDetalleScreen({ ordenId, token, user, onBack, onOpe
         {/* 2. VISTA REVELADA TRAS ESCANEO (ABIERTA O COMPLETADA) */}
         {!isPendiente && (
           <>
-            {/* Tarjeta Cuenta Regresiva de 15 Minutos */}
             {isOpen && (
               <View style={styles.warningCard}>
                 <Text style={styles.warningTimer}>{minutosRestantes}</Text>
                 <Text style={styles.warningSub}>Tiempo restante (Máx. 15 minutos)</Text>
-                <Text style={styles.warningSub}>Al llegar a 00:00 la orden vencerá automáticamente.</Text>
+                <Text style={styles.warningSub}>
+                  Al llegar a 00:00 la orden vencerá automáticamente.
+                </Text>
               </View>
             )}
 
-            {/* Gasolinera */}
             <View style={styles.infoRow}>
               <Text style={{ fontSize: 24, marginRight: 10 }}>📍</Text>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.stationTitle}>{orden.gasolinera?.nombre || 'General'}</Text>
                 <Text style={styles.stationDir}>{orden.gasolinera?.direccion || 'Sin dirección'}</Text>
               </View>
             </View>
 
-            {/* Monto Total */}
             <View style={styles.totalBox}>
               <Text style={styles.totalLabel}>MONTO TOTAL AUTORIZADO</Text>
               <Text style={styles.totalNumber}>L. {montoTotal.toFixed(2)}</Text>
               <Text style={styles.totalSub}>Distribuido en {lineas.length} líneas de despacho</Text>
             </View>
 
-            {/* Líneas de Combustible y Evidencias */}
-            <Text style={styles.sectionTitle}>Líneas de Combustible</Text>
+            <Text style={styles.sectionTitle}>Líneas de Combustible y Evidencias</Text>
             {lineas.map((linea: any) => {
               const fotosTomadas = evidenciasLocales[linea.id] || [];
+              const tieneEvidenciaServidor = !!linea.url_evidencia || !!linea.ruta_evidencia;
+
               return (
                 <View key={linea.id} style={styles.lineaCard}>
                   <Text style={styles.lineaTitle}>
@@ -208,25 +283,41 @@ export default function OrdenDetalleScreen({ ordenId, token, user, onBack, onOpe
                   </Text>
                   <Text style={styles.lineaMonto}>L. {Number(linea.monto).toFixed(2)}</Text>
 
-                  {/* Acciones de Evidencia (Conductor) */}
-                  {user?.rol === 'conductor' && isOpen && (
+                  {/* Cada botón de los 4 se controla de forma independiente */}
+                  {user?.rol === 'conductor' && (
                     <View style={styles.evidenciasGrid}>
-                      {['bomba', 'tablero', 'tanque', 'factura'].map((tipoFoto) => {
-                        const listo = fotosTomadas.includes(tipoFoto) || !!linea.url_evidencia;
+                      {(['bomba', 'tablero', 'tanque', 'factura'] as const).map((tipoFoto) => {
+                        const lista = fotosTomadas.includes(tipoFoto);
+
                         return (
                           <TouchableOpacity
                             key={tipoFoto}
-                            style={[styles.btnFoto, listo && styles.btnFotoListo]}
-                            onPress={() => subirFoto(linea.id, tipoFoto)}
+                            style={[styles.btnFoto, lista && styles.btnFotoListo]}
+                            onPress={() => tomarYSubirFoto(linea.id, tipoFoto)}
                             disabled={actionLoading}
                           >
-                            <Text style={[styles.btnFotoText, listo && styles.btnFotoTextListo]}>
-                              {listo ? `✓ ${tipoFoto}` : `+ Foto ${tipoFoto}`}
+                            <Text style={[styles.btnFotoText, lista && styles.btnFotoTextListo]}>
+                              {lista ? `✓ ${tipoFoto.toUpperCase()}` : `📷 ${tipoFoto.toUpperCase()}`}
                             </Text>
                           </TouchableOpacity>
                         );
                       })}
                     </View>
+                  )}
+
+                  {tieneEvidenciaServidor && (
+                    <TouchableOpacity
+                      style={styles.verFotoBtn}
+                      onPress={() => {
+                        const url =
+                          linea.url_evidencia ||
+                          `${API_URL.replace('/api', '')}/storage/${linea.ruta_evidencia}`;
+                        setFotoUrlSeleccionada(url);
+                        setFotoModalVisible(true);
+                      }}
+                    >
+                      <Text style={styles.verFotoText}>👁 Ver evidencia registrada</Text>
+                    </TouchableOpacity>
                   )}
                 </View>
               );
@@ -234,13 +325,34 @@ export default function OrdenDetalleScreen({ ordenId, token, user, onBack, onOpe
           </>
         )}
 
-        {/* Botón Rehabilitar (Admin) */}
         {isVencida && user?.rol === 'admin' && (
-          <TouchableOpacity style={styles.btnRehabilitar} onPress={rehabilitar} disabled={actionLoading}>
-            {actionLoading ? <ActivityIndicator color={colors.blanco} /> : <Text style={styles.btnPrimaryPillText}>Rehabilitar Orden</Text>}
+          <TouchableOpacity
+            style={styles.btnRehabilitar}
+            onPress={rehabilitarOrden}
+            disabled={actionLoading}
+          >
+            {actionLoading ? (
+              <ActivityIndicator color={colors.blanco} />
+            ) : (
+              <Text style={styles.btnPrimaryPillText}>Rehabilitar Orden</Text>
+            )}
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      <Modal visible={fotoModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Evidencia Guardada en Servidor</Text>
+            {fotoUrlSeleccionada ? (
+              <Image source={{ uri: fotoUrlSeleccionada }} style={styles.imagenEvidencia} resizeMode="contain" />
+            ) : null}
+            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setFotoModalVisible(false)}>
+              <Text style={styles.modalCloseText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -249,17 +361,38 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.fondo },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   container: { padding: 20 },
-  topHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.blanco, padding: 18, borderBottomWidth: 1, borderBottomColor: colors.borde },
-  backBtn: { marginRight: 12, padding: 4 },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.blanco,
+    padding: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borde,
+  },
+  backBtn: { marginRight: 14, padding: 4 },
   topHeaderTitle: { fontSize: 20, fontWeight: '700', color: colors.textoPrincipal },
   orderNumber: { fontSize: 22, fontWeight: '800', color: colors.textoPrincipal },
   badge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start', marginTop: 8 },
   badgeText: { fontSize: 11, fontWeight: '800' },
-  protectedCard: { backgroundColor: colors.blanco, borderRadius: 16, padding: 24, alignItems: 'center', marginTop: 18, borderWidth: 1, borderColor: colors.borde },
+  protectedCard: {
+    backgroundColor: colors.blanco,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    marginTop: 18,
+    borderWidth: 1,
+    borderColor: colors.borde,
+  },
   protectedTitle: { fontSize: 18, fontWeight: '800', color: colors.textoPrincipal },
   protectedSubtitle: { fontSize: 13, color: colors.textoSecundario, textAlign: 'center', marginTop: 6 },
   protectedPlazo: { fontSize: 14, fontWeight: '700', color: colors.marca, marginTop: 14 },
-  warningCard: { backgroundColor: colors.advertenciaFondo, borderRadius: 18, padding: 18, alignItems: 'center', marginTop: 16 },
+  warningCard: {
+    backgroundColor: colors.advertenciaFondo,
+    borderRadius: 18,
+    padding: 18,
+    alignItems: 'center',
+    marginTop: 16,
+  },
   warningTimer: { fontSize: 36, fontWeight: '900', color: colors.advertenciaTexto },
   warningSub: { fontSize: 12, color: colors.advertenciaTextoSecundario, textAlign: 'center', marginTop: 2 },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
@@ -270,15 +403,71 @@ const styles = StyleSheet.create({
   totalNumber: { fontSize: 32, fontWeight: '900', color: colors.textoPrincipal, marginTop: 2 },
   totalSub: { fontSize: 12, color: colors.textoSecundario, marginTop: 4 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.textoPrincipal, marginTop: 20, marginBottom: 10 },
-  lineaCard: { backgroundColor: colors.blanco, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: colors.borde, marginBottom: 12 },
+  lineaCard: {
+    backgroundColor: colors.blanco,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.borde,
+    marginBottom: 12,
+  },
   lineaTitle: { fontSize: 15, fontWeight: '700', color: colors.textoPrincipal },
   lineaMonto: { fontSize: 18, fontWeight: '800', color: colors.marca, marginTop: 4 },
-  evidenciasGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  btnFoto: { flexBasis: '48%', backgroundColor: colors.fondo, borderWidth: 1, borderColor: colors.borde, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
+  evidenciasGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  btnFoto: {
+    flexBasis: '48%',
+    backgroundColor: colors.fondo,
+    borderWidth: 1,
+    borderColor: colors.borde,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
   btnFotoListo: { backgroundColor: colors.completadaFondo, borderColor: colors.completada },
-  btnFotoText: { fontSize: 12, fontWeight: '700', color: colors.textoPrincipal },
+  btnFotoText: { fontSize: 11, fontWeight: '700', color: colors.textoPrincipal },
   btnFotoTextListo: { color: colors.completada },
-  btnPrimaryPill: { backgroundColor: colors.marca, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', width: '100%', marginTop: 18 },
+  verFotoBtn: { marginTop: 12, alignSelf: 'flex-start' },
+  verFotoText: { fontSize: 13, color: colors.marca, fontWeight: '700' },
+  btnPrimaryPill: {
+    backgroundColor: colors.marca,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 18,
+  },
   btnPrimaryPillText: { color: colors.blanco, fontWeight: '700', fontSize: 15 },
-  btnRehabilitar: { backgroundColor: colors.marca, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginTop: 20 },
+  btnRehabilitar: {
+    backgroundColor: colors.marca,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: colors.blanco,
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    alignItems: 'center',
+  },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: colors.textoPrincipal, marginBottom: 12 },
+  imagenEvidencia: { width: '100%', height: 260, borderRadius: 10, backgroundColor: '#eee' },
+  modalCloseBtn: {
+    marginTop: 16,
+    backgroundColor: colors.marca,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  modalCloseText: { color: colors.blanco, fontWeight: '700' },
 });

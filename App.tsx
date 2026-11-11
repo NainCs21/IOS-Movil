@@ -24,8 +24,9 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [loading, setLoading] = useState(false);
 
-  // Navegación a Detalle de Orden
+  // Estados de navegación de Orden
   const [selectedOrdenId, setSelectedOrdenId] = useState<number | null>(null);
+  const [selectedOrden, setSelectedOrden] = useState<any | null>(null);
 
   // Estados de Modales
   const [nuevaSolicitudVisible, setNuevaSolicitudVisible] = useState(false);
@@ -50,6 +51,7 @@ export default function App() {
       setUser(data.usuario);
       setCurrentScreen('home');
       setSelectedOrdenId(null);
+      setSelectedOrden(null);
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
@@ -62,6 +64,7 @@ export default function App() {
     setUser(null);
     setCurrentScreen('home');
     setSelectedOrdenId(null);
+    setSelectedOrden(null);
   };
 
   return (
@@ -83,9 +86,13 @@ export default function App() {
             {selectedOrdenId ? (
               <OrdenDetalleScreen
                 ordenId={selectedOrdenId}
+                ordenData={selectedOrden}
                 token={token}
                 user={user}
-                onBack={() => setSelectedOrdenId(null)}
+                onBack={() => {
+                  setSelectedOrdenId(null);
+                  setSelectedOrden(null);
+                }}
                 onOpenQr={() => setEscanearQrVisible(true)}
               />
             ) : (
@@ -95,7 +102,10 @@ export default function App() {
                     user={user}
                     setScreen={setCurrentScreen}
                     token={token}
-                    onOpenOrder={(id) => setSelectedOrdenId(id)}
+                    onOpenOrder={(id) => {
+                      setSelectedOrden(null);
+                      setSelectedOrdenId(id);
+                    }}
                     onOpenNuevaSolicitud={() => setNuevaSolicitudVisible(true)}
                     onOpenQr={() => setEscanearQrVisible(true)}
                   />
@@ -110,7 +120,10 @@ export default function App() {
                 {currentScreen === 'ordenes' && (
                   <OrdenesScreen
                     token={token}
-                    onOpenOrder={(id) => setSelectedOrdenId(id)}
+                    onOpenOrder={(id) => {
+                      setSelectedOrden(null);
+                      setSelectedOrdenId(id);
+                    }}
                   />
                 )}
                 {currentScreen === 'catalogos' && <CatalogosScreen token={token} />}
@@ -120,7 +133,6 @@ export default function App() {
             )}
           </View>
 
-          {/* Modales Interactivos del Sistema */}
           <NuevaSolicitudModal
             visible={nuevaSolicitudVisible}
             onClose={() => setNuevaSolicitudVisible(false)}
@@ -139,7 +151,10 @@ export default function App() {
             visible={escanearQrVisible}
             onClose={() => setEscanearQrVisible(false)}
             token={token}
-            onScanned={(orden) => setSelectedOrdenId(orden.id)}
+            onScanned={(orden) => {
+              setSelectedOrden(orden);
+              setSelectedOrdenId(orden.id);
+            }}
           />
 
           {!selectedOrdenId && (
