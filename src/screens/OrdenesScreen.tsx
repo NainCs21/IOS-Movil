@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { API_URL } from '../api/config';
 import { colors } from '../theme/colors';
 
 interface Props {
   token: string;
+  onOpenOrder: (id: number) => void;
 }
 
-export default function OrdenesScreen({ token }: Props) {
+export default function OrdenesScreen({ token, onOpenOrder }: Props) {
   const [ordenes, setOrdenes] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -15,7 +16,7 @@ export default function OrdenesScreen({ token }: Props) {
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/ordenes`, {
-        headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       setOrdenes(Array.isArray(data) ? data : data.data || []);
@@ -44,14 +45,14 @@ export default function OrdenesScreen({ token }: Props) {
 
       <FlatList
         data={ordenes}
-        keyExtractor={item => item.id.toString()}
+        keyExtractor={(item) => item.id.toString()}
         onRefresh={fetchOrdenes}
         refreshing={loading}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => {
           const badge = getBadgeStyle(item.estado);
           return (
-            <View style={styles.cardItem}>
+            <TouchableOpacity style={styles.cardItem} onPress={() => onOpenOrder(item.id)}>
               <View style={styles.cardHeader}>
                 <Text style={styles.orderNumber}>{item.numero_orden}</Text>
                 <View style={[styles.badge, { backgroundColor: badge.bg }]}>
@@ -61,11 +62,11 @@ export default function OrdenesScreen({ token }: Props) {
                 </View>
               </View>
               <Text style={styles.stationText}>Gasolinera: {item.gasolinera?.nombre || 'General'}</Text>
-            </View>
+              <Text style={styles.detailText}>Vence: {item.vence_asignacion || 'En espera'} →</Text>
+            </TouchableOpacity>
           );
         }}
-        ListEmptyComponent={
-        !loading ? <Text style={styles.emptyText}>Sin órdenes todavía</Text> : undefined        }
+        ListEmptyComponent={!loading ? <Text style={styles.emptyText}>Sin órdenes todavía</Text> : undefined}
       />
     </View>
   );
@@ -76,18 +77,12 @@ const styles = StyleSheet.create({
   topHeader: { backgroundColor: colors.blanco, padding: 20, borderBottomWidth: 1, borderBottomColor: colors.borde },
   topHeaderTitle: { fontSize: 21, fontWeight: '700', color: colors.textoPrincipal },
   list: { padding: 20 },
-  cardItem: {
-    backgroundColor: colors.blanco,
-    borderRadius: 16,
-    padding: 17,
-    borderWidth: 1,
-    borderColor: colors.borde,
-    marginBottom: 12,
-  },
+  cardItem: { backgroundColor: colors.blanco, borderRadius: 16, padding: 17, borderWidth: 1, borderColor: colors.borde, marginBottom: 12 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   orderNumber: { fontSize: 16, fontWeight: '700', color: colors.textoPrincipal },
   badge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 13 },
   badgeText: { fontSize: 11, fontWeight: '700' },
   stationText: { fontSize: 14, color: colors.textoSecundario, marginTop: 6 },
+  detailText: { fontSize: 12, color: colors.marca, fontWeight: '600', marginTop: 4 },
   emptyText: { textAlign: 'center', color: colors.textoSecundario, marginTop: 40 },
 });

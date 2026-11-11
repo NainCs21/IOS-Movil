@@ -8,7 +8,13 @@ import HomeScreen from './src/screens/HomeScreen';
 import OrdenesScreen from './src/screens/OrdenesScreen';
 import SolicitudesScreen from './src/screens/SolicitudesScreen';
 import CatalogosScreen from './src/screens/CatalogosScreen';
+import CajaChicaScreen from './src/screens/CajaChicaScreen';
 import PerfilScreen from './src/screens/PerfilScreen';
+import OrdenDetalleScreen from './src/screens/OrdenDetalleScreen';
+
+import NuevaSolicitudModal from './src/screens/NuevaSolicitudModal';
+import AsignarMontoModal from './src/screens/AsignarMontoModal';
+import EscanearQrModal from './src/screens/EscanearQrModal';
 
 import BottomNav from './src/components/BottomNav';
 
@@ -18,6 +24,14 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [loading, setLoading] = useState(false);
 
+  // Navegación a Detalle de Orden
+  const [selectedOrdenId, setSelectedOrdenId] = useState<number | null>(null);
+
+  // Estados de Modales
+  const [nuevaSolicitudVisible, setNuevaSolicitudVisible] = useState(false);
+  const [solicitudParaAsignar, setSolicitudParaAsignar] = useState<any | null>(null);
+  const [escanearQrVisible, setEscanearQrVisible] = useState(false);
+
   const [correo, setCorreo] = useState('cmendoza@empresa.com');
   const [password, setPassword] = useState('password');
 
@@ -26,8 +40,8 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/login`, {
         method: 'POST',
-        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ correo: correo.trim(), contrasena: password, nombre_dispositivo: 'iPhone' }),
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ correo: correo.trim(), contrasena: password, nombre_dispositivo: 'iPhone-iOS' }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.mensaje || 'Error al iniciar sesión');
@@ -35,6 +49,7 @@ export default function App() {
       setToken(data.token);
       setUser(data.usuario);
       setCurrentScreen('home');
+      setSelectedOrdenId(null);
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
@@ -46,6 +61,7 @@ export default function App() {
     setToken(null);
     setUser(null);
     setCurrentScreen('home');
+    setSelectedOrdenId(null);
   };
 
   return (
@@ -64,13 +80,71 @@ export default function App() {
       ) : (
         <View style={styles.flex}>
           <View style={styles.flex}>
-            {currentScreen === 'home' && <HomeScreen user={user} setScreen={setCurrentScreen} token={token} />}
-            {currentScreen === 'solicitudes' && <SolicitudesScreen token={token} />}
-            {currentScreen === 'ordenes' && <OrdenesScreen token={token} />}
-            {currentScreen === 'catalogos' && <CatalogosScreen token={token} />}
-            {currentScreen === 'perfil' && <PerfilScreen user={user} onLogout={handleLogout} />}
+            {selectedOrdenId ? (
+              <OrdenDetalleScreen
+                ordenId={selectedOrdenId}
+                token={token}
+                user={user}
+                onBack={() => setSelectedOrdenId(null)}
+                onOpenQr={() => setEscanearQrVisible(true)}
+              />
+            ) : (
+              <>
+                {currentScreen === 'home' && (
+                  <HomeScreen
+                    user={user}
+                    setScreen={setCurrentScreen}
+                    token={token}
+                    onOpenOrder={(id) => setSelectedOrdenId(id)}
+                    onOpenNuevaSolicitud={() => setNuevaSolicitudVisible(true)}
+                    onOpenQr={() => setEscanearQrVisible(true)}
+                  />
+                )}
+                {currentScreen === 'solicitudes' && (
+                  <SolicitudesScreen
+                    token={token}
+                    user={user}
+                    onAsignar={(sol) => setSolicitudParaAsignar(sol)}
+                  />
+                )}
+                {currentScreen === 'ordenes' && (
+                  <OrdenesScreen
+                    token={token}
+                    onOpenOrder={(id) => setSelectedOrdenId(id)}
+                  />
+                )}
+                {currentScreen === 'catalogos' && <CatalogosScreen token={token} />}
+                {currentScreen === 'caja_chica' && <CajaChicaScreen token={token} />}
+                {currentScreen === 'perfil' && <PerfilScreen user={user} onLogout={handleLogout} />}
+              </>
+            )}
           </View>
-          <BottomNav currentScreen={currentScreen} setScreen={setCurrentScreen} rol={user?.rol} />
+
+          {/* Modales Interactivos del Sistema */}
+          <NuevaSolicitudModal
+            visible={nuevaSolicitudVisible}
+            onClose={() => setNuevaSolicitudVisible(false)}
+            token={token}
+            onSuccess={() => {}}
+          />
+
+          <AsignarMontoModal
+            solicitud={solicitudParaAsignar}
+            onClose={() => setSolicitudParaAsignar(null)}
+            token={token}
+            onSuccess={() => {}}
+          />
+
+          <EscanearQrModal
+            visible={escanearQrVisible}
+            onClose={() => setEscanearQrVisible(false)}
+            token={token}
+            onScanned={(orden) => setSelectedOrdenId(orden.id)}
+          />
+
+          {!selectedOrdenId && (
+            <BottomNav currentScreen={currentScreen} setScreen={setCurrentScreen} rol={user?.rol} />
+          )}
         </View>
       )}
     </SafeAreaView>
