@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { colors } from '../theme/colors';
 
 interface Props {
   user: any;
@@ -8,29 +9,58 @@ interface Props {
 
 export default function PerfilScreen({ user, onLogout }: Props) {
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{(user?.nombre || 'U').charAt(0)}</Text>
-        </View>
-        <Text style={styles.name}>{user?.nombre}</Text>
-        <Text style={styles.role}>ROL: {(user?.rol || '').toUpperCase()}</Text>
+    <View style={styles.flex}>
+      <View style={styles.topHeader}>
+        <Text style={styles.topHeaderTitle}>Datos de mi cuenta</Text>
       </View>
 
-      <TouchableOpacity style={styles.btnDanger} onPress={onLogout}>
-        <Text style={styles.btnText}>Cerrar Sesión</Text>
-      </TouchableOpacity>
+      <View style={styles.container}>
+        <View style={styles.card}>
+          <View style={styles.badgeRol}>
+            <Text style={styles.badgeRolText}>{(user?.rol || 'USUARIO').toUpperCase()}</Text>
+          </View>
+          <Text style={styles.name}>{user?.nombre}</Text>
+          <Text style={styles.email}>{user?.email || 'usuario@empresa.com'}</Text>
+        </View>
+
+        <View style={{ flex: 1 }} />
+
+        <TouchableOpacity style={styles.btnLogout} onPress={onLogout}>
+          <Text style={styles.btnLogoutText}>Cerrar sesión</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16 },
-  card: { backgroundColor: '#fff', padding: 24, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0' },
-  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#0284c7', justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  avatarText: { color: '#fff', fontSize: 26, fontWeight: '800' },
-  name: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
-  role: { fontSize: 12, fontWeight: '700', color: '#0284c7', marginTop: 2 },
-  btnDanger: { backgroundColor: '#ef4444', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 20 },
-  btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  flex: { flex: 1, backgroundColor: colors.fondo },
+  topHeader: { backgroundColor: colors.blanco, padding: 20, borderBottomWidth: 1, borderBottomColor: colors.borde },
+  topHeaderTitle: { fontSize: 20, fontWeight: '700', color: colors.textoPrincipal },
+  container: { flex: 1, padding: 20 },
+  card: {
+    backgroundColor: colors.blanco,
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: colors.borde,
+  },
+  badgeRol: {
+    backgroundColor: colors.abiertaFondo,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 13,
+    alignSelf: 'flex-start',
+  },
+  badgeRolText: { color: colors.abierta, fontWeight: '700', fontSize: 11 },
+  name: { fontSize: 20, fontWeight: '700', color: colors.textoPrincipal, marginTop: 12 },
+  email: { fontSize: 14, color: colors.textoSecundario, marginTop: 2 },
+  btnLogout: {
+    backgroundColor: colors.vencida,
+    height: 52,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  btnLogoutText: { color: colors.blanco, fontSize: 15, fontWeight: '700' },
 });

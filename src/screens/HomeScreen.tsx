@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { API_URL } from '../api/config';
+import { colors } from '../theme/colors';
 
 interface Props {
   user: any;
@@ -9,63 +10,250 @@ interface Props {
 }
 
 export default function HomeScreen({ user, setScreen, token }: Props) {
-  const [totalOrdenes, setTotalOrdenes] = useState(0);
-  const [totalSolicitudes, setTotalSolicitudes] = useState(0);
+  const isAdmin = user?.rol === 'admin';
+  const [ordenes, setOrdenes] = useState<any[]>([]);
+  const [solicitudes, setSolicitudes] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const headers = { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` };
-    fetch(`${API_URL}/ordenes`, { headers })
-      .then(r => r.json())
-      .then(d => setTotalOrdenes(Array.isArray(d) ? d.length : (d.data || []).length))
-      .catch(() => {});
-
-    fetch(`${API_URL}/solicitudes`, { headers })
-      .then(r => r.json())
-      .then(d => setTotalSolicitudes(Array.isArray(d) ? d.length : (d.data || []).length))
-      .catch(() => {});
+    setLoading(true);
+    Promise.all([
+      fetch(`${API_URL}/ordenes`, { headers }).then(r => r.json()).catch(() => []),
+      fetch(`${API_URL}/solicitudes`, { headers }).then(r => r.json()).catch(() => []),
+    ]).then(([ordData, solData]) => {
+      setOrdenes(Array.isArray(ordData) ? ordData : ordData.data || []);
+      setSolicitudes(Array.isArray(solData) ? solData : solData.data || []);
+      setLoading(false);
+    });
   }, [token]);
 
+  // Contadores para el panel de Admin
+  const pendientesCount = solicitudes.filter(s => s.estado === 'pendiente').length;
+  const abiertasCount = ordenes.filter(o => o.estado === 'abierta').length;
+  const completadasCount = ordenes.filter(o => o.estado === 'completada').length;
+  const vencidasCount = ordenes.filter(o => o.estado === 'vencida').length;
+  const proximaOrden = ordenes.find(o => o.estado === 'abierta');
+
+  // VISTA CONDUCTOR (fragment_home_conductor.xml)
+  if (!isAdmin) {
+    return (
+      <View style={styles.flex}>
+        <View style={styles.topHeader}>
+          <Text style={styles.topHeaderTitle}>Hola, {user?.nombre?.split(' ')[0]}</Text>
+          <View style={styles.row}>
+            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setScreen('solicitudes')}>
+              <Text style={{ fontSize: 18 }}>🕒</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setScreen('perfil')}>
+              <Text style={{ fontSize: 18 }}>👤</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.container}>
+          <Text style={styles.sectionTitle}>Mis Órdenes de Combustible</Text>
+          {ordenes.map(item => (
+            <View key={item.id} style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{item.numero_orden}</Text>
+                <View style={[styles.badge, { backgroundColor: item.estado === 'abierta' ? colors.abiertaFondo : colors.pendienteFondo }]}>
+                  <Text style={[styles.badgeText, { color: item.estado === 'abierta' ? colors.abierta : colors.pendiente }]}>
+                    {(item.estado || 'PENDIENTE').toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.cardSub}>Gasolinera: {item.gasolinera?.nombre || 'General'}</Text>
+              <Text style={styles.cardDetail}>Vigencia: {item.vence_asignacion || 'En espera'}</Text>
+            </View>
+          ))}
+          {ordenes.length === 0 && (
+            <Text style={styles.emptyText}>Sin órdenes asignadas todavía</Text>
+          )}
+        </ScrollView>
+
+        {/* Botón flotante inferior para Conductor */}
+        <View style={styles.bottomDock}>
+          <TouchableOpacity style={styles.btnPrimaryPill} onPress={() => Alert.alert('Solicitud', 'Abrir formulario de nueva solicitud.')}>
+            <Text style={styles.btnPrimaryPillText}>+ Nueva solicitud</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // VISTA ADMINISTRADOR (fragment_home_admin.xml)
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.banner}>
-        <Text style={styles.welcome}>Hola, {user?.nombre || 'Usuario'}</Text>
-        <Text style={styles.role}>ROL: {(user?.rol || '').toUpperCase()}</Text>
-      </View>
-
-      <Text style={styles.sectionTitle}>Resumen</Text>
-      <View style={styles.grid}>
-        <TouchableOpacity style={[styles.statCard, { borderLeftColor: '#0284c7' }]} onPress={() => setScreen('ordenes')}>
-          <Text style={styles.statNum}>{totalOrdenes}</Text>
-          <Text style={styles.statLabel}>Órdenes Activas</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.statCard, { borderLeftColor: '#eab308' }]} onPress={() => setScreen('solicitudes')}>
-          <Text style={styles.statNum}>{totalSolicitudes}</Text>
-          <Text style={styles.statLabel}>Solicitudes</Text>
+    <View style={styles.flex}>
+      {/* Barra superior blanca */}
+      <View style={styles.topHeader}>
+        <View style={styles.rowCenter}>
+          <Text style={{ fontSize: 22, marginRight: 8 }}>⛽</Text>
+          <View>
+            <Text style={styles.topHeaderTitle}>Inicio</Text>
+            <Text style={styles.topHeaderRole}>ADMINISTRADOR</Text>
+          </View>
+        </View>
+        <TouchableOpacity onPress={() => Alert.alert('Notificaciones', 'Sin notificaciones pendientes')}>
+          <Text style={{ fontSize: 20 }}>🔔</Text>
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.sectionTitle}>Acciones Rápidas</Text>
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={styles.btnAction} onPress={() => Alert.alert('Escáner QR', 'Apertura de cámara.')}>
-          <Text style={styles.btnActionText}>📷 Escanear QR</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.dateLabel}>HOY EN CURSO</Text>
+        <Text style={styles.welcomeTitle}>Hola, {user?.nombre?.split(' ')[0]}</Text>
+
+        {/* Tarjeta Solicitudes Pendientes */}
+        <View style={styles.card}>
+          <View style={styles.rowCenter}>
+            <Text style={styles.bigNumber}>{pendientesCount}</Text>
+            <View style={{ marginLeft: 16, flex: 1 }}>
+              <Text style={styles.cardTitle}>Solicitudes pendientes</Text>
+              <Text style={styles.cardSub}>Esperan asignación de monto</Text>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.btnLightPill} onPress={() => setScreen('solicitudes')}>
+            <Text style={styles.btnLightPillText}>Asignar montos</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Indicadores de hoy: Abiertas, Completadas, Vencidas */}
+        <View style={styles.statsRow}>
+          <View style={styles.statBox}>
+            <Text style={[styles.statNumber, { color: colors.abierta }]}>{abiertasCount}</Text>
+            <Text style={styles.statLabel}>Abiertas</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={[styles.statNumber, { color: colors.completada }]}>{completadasCount}</Text>
+            <Text style={styles.statLabel}>Completadas</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={[styles.statNumber, { color: colors.vencida }]}>{vencidasCount}</Text>
+            <Text style={styles.statLabel}>Vencidas</Text>
+          </View>
+        </View>
+
+        {/* Tarjeta de Advertencia (Orden próxima a vencer) */}
+        {proximaOrden && (
+          <View style={styles.warningCard}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.warningTitle}>{proximaOrden.numero_orden}</Text>
+              <View style={[styles.badge, { backgroundColor: colors.abiertaFondo }]}>
+                <Text style={[styles.badgeText, { color: colors.abierta }]}>ABIERTA</Text>
+              </View>
+            </View>
+            <Text style={styles.warningDetail}>Gasolinera: {proximaOrden.gasolinera?.nombre}</Text>
+            <View style={styles.warningFooter}>
+              <Text style={styles.warningTimer}>⏳ Vence hoy: {proximaOrden.vence_asignacion?.substring(11, 16) || 'Pronto'}</Text>
+              <TouchableOpacity onPress={() => setScreen('ordenes')}>
+                <Text style={styles.linkText}>Ver orden →</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Accesos Rápidos */}
+        <Text style={styles.sectionTitle}>Accesos rápidos</Text>
+        <View style={styles.actionRow}>
+          <TouchableOpacity style={styles.outlineBtn} onPress={() => setScreen('catalogos')}>
+            <Text style={styles.outlineBtnText}>Catálogos →</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.outlineBtn} onPress={() => setScreen('ordenes')}>
+            <Text style={styles.outlineBtnText}>Todas las órdenes →</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16 },
-  banner: { backgroundColor: '#0284c7', padding: 18, borderRadius: 12, marginBottom: 16 },
-  welcome: { fontSize: 20, fontWeight: '800', color: '#fff' },
-  role: { fontSize: 13, color: '#e0f2fe', marginTop: 2 },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: '#1e293b', marginBottom: 10, marginTop: 8 },
-  grid: { flexDirection: 'row', gap: 12, marginBottom: 18 },
-  statCard: { flex: 1, backgroundColor: '#fff', padding: 14, borderRadius: 10, borderLeftWidth: 4, elevation: 1 },
-  statNum: { fontSize: 22, fontWeight: '800', color: '#0f172a' },
-  statLabel: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  flex: { flex: 1, backgroundColor: colors.fondo },
+  container: { padding: 20 },
+  topHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.blanco,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borde,
+  },
+  topHeaderTitle: { fontSize: 21, fontWeight: '700', color: colors.textoPrincipal },
+  topHeaderRole: { fontSize: 11, fontWeight: '800', color: colors.marca, letterSpacing: 0.5 },
+  headerIconBtn: { marginLeft: 12, padding: 4 },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  rowCenter: { flexDirection: 'row', alignItems: 'center' },
+  dateLabel: { fontSize: 12, fontWeight: '800', color: colors.textoSecundario, letterSpacing: 0.8 },
+  welcomeTitle: { fontSize: 24, fontWeight: '700', color: colors.textoPrincipal, marginTop: 4, marginBottom: 16 },
+  card: {
+    backgroundColor: colors.blanco,
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: colors.borde,
+    marginBottom: 16,
+  },
+  bigNumber: { fontSize: 40, fontWeight: '800', color: colors.marca },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: colors.textoPrincipal },
+  cardSub: { fontSize: 13, color: colors.textoSecundario, marginTop: 2 },
+  cardDetail: { fontSize: 12, color: colors.textoSecundario, marginTop: 4 },
+  btnLightPill: {
+    backgroundColor: colors.marcaClaro,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  btnLightPillText: { color: colors.marcaOscuro, fontWeight: '700', fontSize: 13 },
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  statBox: {
+    flex: 1,
+    backgroundColor: colors.blanco,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.borde,
+  },
+  statNumber: { fontSize: 24, fontWeight: '800' },
+  statLabel: { fontSize: 12, color: colors.textoSecundario, marginTop: 2, fontWeight: '600' },
+  warningCard: {
+    backgroundColor: colors.advertenciaFondo,
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 16,
+  },
+  warningTitle: { fontSize: 15, fontWeight: '700', color: colors.textoPrincipal },
+  warningDetail: { fontSize: 13, color: colors.advertenciaTextoSecundario, marginTop: 6 },
+  warningFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
+  warningTimer: { fontSize: 14, fontWeight: '700', color: colors.advertenciaTexto },
+  linkText: { color: colors.marca, fontWeight: '700', fontSize: 14 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.textoPrincipal, marginTop: 8, marginBottom: 10 },
   actionRow: { flexDirection: 'row', gap: 10 },
-  btnAction: { flex: 1, backgroundColor: '#0284c7', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
-  btnActionText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  outlineBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.borde,
+    backgroundColor: colors.blanco,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  outlineBtnText: { color: colors.marca, fontWeight: '700', fontSize: 13 },
+  bottomDock: { backgroundColor: colors.blanco, padding: 20, borderTopWidth: 1, borderTopColor: colors.borde },
+  btnPrimaryPill: {
+    backgroundColor: colors.marca,
+    height: 52,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  btnPrimaryPillText: { color: colors.blanco, fontSize: 15, fontWeight: '700' },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  badgeText: { fontSize: 11, fontWeight: '800' },
+  emptyText: { textAlign: 'center', color: colors.textoSecundario, marginTop: 30 },
 });

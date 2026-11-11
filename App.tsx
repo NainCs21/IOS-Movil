@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { SafeAreaView, StatusBar, StyleSheet, View, Alert } from 'react-native';
 import { API_URL } from './src/api/config';
+import { colors } from './src/theme/colors';
 
-// Pantallas importadas
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import OrdenesScreen from './src/screens/OrdenesScreen';
 import SolicitudesScreen from './src/screens/SolicitudesScreen';
+import CatalogosScreen from './src/screens/CatalogosScreen';
 import PerfilScreen from './src/screens/PerfilScreen';
 
-// Componentes
 import BottomNav from './src/components/BottomNav';
 
 export default function App() {
@@ -18,9 +18,8 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [loading, setLoading] = useState(false);
 
-  // Credenciales
-  const [correo, setCorreo] = useState('admin@test.com');
-  const [password, setPassword] = useState('password123');
+  const [correo, setCorreo] = useState('cmendoza@empresa.com');
+  const [password, setPassword] = useState('password');
 
   const handleLogin = async () => {
     setLoading(true);
@@ -35,6 +34,7 @@ export default function App() {
 
       setToken(data.token);
       setUser(data.usuario);
+      setCurrentScreen('home');
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
@@ -65,11 +65,12 @@ export default function App() {
         <View style={styles.flex}>
           <View style={styles.flex}>
             {currentScreen === 'home' && <HomeScreen user={user} setScreen={setCurrentScreen} token={token} />}
-            {currentScreen === 'ordenes' && <OrdenesScreen token={token} />}
             {currentScreen === 'solicitudes' && <SolicitudesScreen token={token} />}
+            {currentScreen === 'ordenes' && <OrdenesScreen token={token} />}
+            {currentScreen === 'catalogos' && <CatalogosScreen token={token} />}
             {currentScreen === 'perfil' && <PerfilScreen user={user} onLogout={handleLogout} />}
           </View>
-          <BottomNav currentScreen={currentScreen} setScreen={setCurrentScreen} />
+          <BottomNav currentScreen={currentScreen} setScreen={setCurrentScreen} rol={user?.rol} />
         </View>
       )}
     </SafeAreaView>
@@ -77,6 +78,6 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f1f5f9' },
+  container: { flex: 1, backgroundColor: colors.fondo },
   flex: { flex: 1 },
 });
